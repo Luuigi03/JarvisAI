@@ -12,7 +12,7 @@ if not api_key:
 
 genai.configure(api_key = api_key)
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")
 chat = model.start_chat() #chat con storico
 
 recognizer = sr.Recognizer()
@@ -44,12 +44,12 @@ def rispondi(domanda):
         response = chat.send_message(domanda)
         return response.text
     except Exception as e:
-        return f"Mi dispiace, c'è stato un errore"
+        return f"Mi dispiace, c'è stato un errore: {str(e)}"
 
 
 # Loop principale
 print("Assistente vocale Gemini attivo! Di' 'esci' per terminare.")
-parla("Ciao! Sono il tuo assistente. Come posso aiutarti?")
+parla("Come posso aiutarti?")
 
 while True:
     domanda = ascolta()
