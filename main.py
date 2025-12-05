@@ -21,6 +21,7 @@ chat = model.start_chat() #chat con storico
 
 recognizer = sr.Recognizer()
 engine = pyttsx3.init()
+engine.setProperty('rate', 150)
 stop_speaking = False
 NOME_PREFERITO = "Signor Cocc"
 
