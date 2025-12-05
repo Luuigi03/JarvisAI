@@ -28,20 +28,33 @@ NOME_PREFERITO = "Signor Cocc"
 
 def ascolta():
     with sr.Microphone() as source:
-        print("Sono in ascolto...")
-        recognizer.adjust_for_ambient_noise(source)
-        audio = recognizer.listen(source)
+        print("Sono in ascolto... parla pure")
+        recognizer.adjust_for_ambient_noise(source, duration=0.8)  # più lungo = migliore calibrazione
+        recognizer.energy_threshold = 300  # valore di default è ~300-400, più basso = più sensibile
+        recognizer.dynamic_energy_threshold = True  # si adatta automaticamente
+
+        # PARAMETRI MAGICI per frasi lunghe
+        audio = recognizer.listen(
+            source,
+            timeout=8,  # tempo massimo di silenzio prima di smettere di ascoltare
+            phrase_time_limit=15  # <-- massimo 15 secondi di frase continua (perfetto per frasi lunghe)
+        )
+
         try:
+            # Usa Google con energy_threshold più basso (più sensibile)
             testo = recognizer.recognize_google(audio, language="it-IT")
             print(f"Hai detto: {testo}")
             return testo.lower()
+
+        except sr.WaitTimeoutError:
+            print("Nessun suono rilevato per troppo tempo...")
+            return None
         except sr.UnknownValueError:
-            print("Non ho capito, riprova!")
+            print("Non ho capito bene, puoi ripetere?")
             return None
         except Exception as e:
-            print(f"Errore riconoscimento: {e}")
+            print(f"Errore: {e}")
             return None
-
 
 
 def rispondi_con_nome(domanda):
