@@ -49,15 +49,15 @@ def rispondi(domanda):
 
 # Loop principale
 print("Assistente vocale Gemini attivo! Di' 'esci' per terminare.")
-parla("Come posso aiutarti?")
+parla("Ciao sono Jarvis. Come posso aiutarti?")
 
 while True:
     domanda = ascolta()
     if domanda:
         if "esci" in domanda or "addio" in domanda or "ciao" in domanda:
-            parla("Ciao! A presto.")
+            parla("Ciao! A presto signore.")
             break
-
-        risposta = rispondi(domanda)
-        print(f"AI: {risposta}")
-        parla(risposta)
+        elif "jarvis" in domanda or "giarvis" in domanda or "gliarvis" in domanda: # parola di attivazione
+            risposta = rispondi(domanda)
+            print(f"AI: {risposta}")
+            parla(risposta)
