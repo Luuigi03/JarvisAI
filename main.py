@@ -1,14 +1,12 @@
-import speech_recognition as sr
-import pyttsx3
-import os
-import google.generativeai as genai
-import threading
-from dotenv import load_dotenv
+import speech_recognition as sr #riconoscimento vocale
+import pyttsx3 # TTS(text to speech)
+import os #interazione con sistema operativo
+import google.generativeai as genai #sdk per utilizzare gemini
+import threading # concorrenza
+from dotenv import load_dotenv #gestione variabili d'ambiente
+import weather #api meteo
 
-# I tuoi moduli
-import weather
-
-# Carica variabili d'ambiente
+# Carica variabili d'ambiente che sono scritte nel file .env
 load_dotenv()
 
 # --- CONFIGURAZIONE API GEMINI ---
@@ -18,25 +16,25 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-2.5-flash")  # Usa Flash per maggiore velocità
-chat = model.start_chat()  # Mantiene la memoria della conversazione
+chat = model.start_chat()  # Mantiene la cronologia della conversazione della sessione attuale
 
-# --- CONFIGURAZIONE VOCALE (Ottimizzata) ---
-recognizer = sr.Recognizer()
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)  # Velocità voce
-engine.setProperty('volume', 1.0)
+# --- CONFIGURAZIONE VOCALE ---
+recognizer = sr.Recognizer() # oggetto per la gestione del riconoscimento vocale STT
+engine = pyttsx3.init() # oggetto per la gestione dello TTS
+engine.setProperty('rate', 150)  # Velocità voce. Rate=parole al minuto
+engine.setProperty('volume', 1.0) # 1.0 = volume al massimo
 
 # Variabili globali
 stop_speaking = False
-NOME_PREFERITO = "Signore"  # O "Signor Cocc"
+NOME_PREFERITO = "Iron Man"
 
-# --- SETUP INIZIALE MICROFONO (Fatto una sola volta per velocità) ---
+# --- SETUP INIZIALE MICROFONO ---
 print("Calibrazione microfono in corso... (Resta in silenzio per 1 secondo)")
 mic = sr.Microphone()
-with mic as source:
-    recognizer.adjust_for_ambient_noise(source, duration=1)
-    recognizer.energy_threshold = 300  # Soglia base (puoi alzarla se c'è rumore di fondo)
-    recognizer.dynamic_energy_threshold = True  # Si adatta leggermente
+with mic as source: # apre lo stream audio
+    recognizer.adjust_for_ambient_noise(source, duration=1) # calibra il riconoscimento in base al rumore ambientale
+    recognizer.energy_threshold = 300  # Soglia base dalla quale il suono è considerato come voce
+    recognizer.dynamic_energy_threshold = True  # Adatta leggermente il treshold
     recognizer.pause_threshold = 0.8  # Tempo di silenzio per considerare la frase finita
 print("Calibrazione completata. Jarvis è pronto.")
 
@@ -49,44 +47,45 @@ def parla(testo):
         if stop_speaking: return
         try:
             engine.say(testo)
-            engine.runAndWait()
+            engine.runAndWait() #multithreading
         except RuntimeError:
             # Gestisce il caso in cui il loop dell'engine sia già attivo
             pass
 
-    # Thread per non bloccare l'ascolto mentre parla
+    # Thread per non bloccare l'ascolto mentre parla, multithreading
     thread = threading.Thread(target=_speak, daemon=True)
     thread.start()
 
 
 def ascolta():
-    """Ascolta il microfono con impostazioni ottimizzate per la velocità"""
+
     with mic as source:
-        print("Listening...", end="\r", flush=True)  # Feedback visivo minimo
+        print("Listening...", end="\r", flush=True)
         try:
-            # timeout: se non parli entro 5s, smette di ascoltare
-            # phrase_time_limit: taglia la registrazione a 10s per velocizzare l'invio a Google
+            # timeout: se non parlo entro 5s, smette di ascoltare
+            # phrase_time_limit: a 10s smette di ascoltare considerando la frase terminata
             audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
 
             # Riconoscimento Google
-            testo = recognizer.recognize_google(audio, language="it-IT")
+            testo = recognizer.recognize_google(audio, language="it-IT") #invia l'audio a google ed ottiene il testo
             print(f"\nTu: {testo}")
             return testo.lower()
 
-        except sr.WaitTimeoutError:
-            return None  # Silenzio, riprova subito
-        except sr.UnknownValueError:
-            return None  # Rumore non capito, riprova
-        except sr.RequestError:
+        except sr.WaitTimeoutError: #Eccezione se l'utente non parla o ha fatto troppo silenzio
+            return None
+        except sr.UnknownValueError: #Non capisce cosa è stato detto
+            return None
+        except sr.RequestError: #Richiesta a google fallita
             parla("C'è un problema di connessione.")
             return None
-        except Exception as e:
+        except Exception as e: #Qualsiasi altra eccezione imprevista
             print(f"Errore: {e}")
             return None
 
 
+#pone la domanda a gemini e ritorna la risposta
 def rispondi_gemini(domanda):
-    """Gestisce la risposta AI"""
+
     try:
         response = chat.send_message(domanda)
         return response.text
