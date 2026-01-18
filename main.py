@@ -4,134 +4,141 @@ import os
 import google.generativeai as genai
 import threading
 from dotenv import load_dotenv
-load_dotenv()
 
-#My libs
+# I tuoi moduli
 import weather
 
-# Utilizzo la api key di Gemini
+# Carica variabili d'ambiente
+load_dotenv()
+
+# --- CONFIGURAZIONE API GEMINI ---
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     raise ValueError("Errore: imposta la variabile d'ambiente della chiave API")
 
-genai.configure(api_key = api_key)
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.5-flash")  # Usa Flash per maggiore velocità
+chat = model.start_chat()  # Mantiene la memoria della conversazione
 
-model = genai.GenerativeModel("gemini-2.5-flash")
-chat = model.start_chat() #chat con storico
-
+# --- CONFIGURAZIONE VOCALE (Ottimizzata) ---
 recognizer = sr.Recognizer()
 engine = pyttsx3.init()
-engine.setProperty('rate', 150)
+engine.setProperty('rate', 150)  # Velocità voce
+engine.setProperty('volume', 1.0)
+
+# Variabili globali
 stop_speaking = False
-NOME_PREFERITO = "Signor Cocc"
+NOME_PREFERITO = "Signore"  # O "Signor Cocc"
+
+# --- SETUP INIZIALE MICROFONO (Fatto una sola volta per velocità) ---
+print("Calibrazione microfono in corso... (Resta in silenzio per 1 secondo)")
+mic = sr.Microphone()
+with mic as source:
+    recognizer.adjust_for_ambient_noise(source, duration=1)
+    recognizer.energy_threshold = 300  # Soglia base (puoi alzarla se c'è rumore di fondo)
+    recognizer.dynamic_energy_threshold = True  # Si adatta leggermente
+    recognizer.pause_threshold = 0.8  # Tempo di silenzio per considerare la frase finita
+print("Calibrazione completata. Jarvis è pronto.")
+
+
+def parla(testo):
+    global stop_speaking
+    stop_speaking = False
+
+    def _speak():
+        if stop_speaking: return
+        try:
+            engine.say(testo)
+            engine.runAndWait()
+        except RuntimeError:
+            # Gestisce il caso in cui il loop dell'engine sia già attivo
+            pass
+
+    # Thread per non bloccare l'ascolto mentre parla
+    thread = threading.Thread(target=_speak, daemon=True)
+    thread.start()
 
 
 def ascolta():
-    with sr.Microphone() as source:
-        print("Sono in ascolto... parla pure")
-        recognizer.adjust_for_ambient_noise(source, duration=0.8)  # più lungo = migliore calibrazione
-        recognizer.energy_threshold = 300  # valore di default è ~300-400, più basso = più sensibile
-        recognizer.dynamic_energy_threshold = True  # si adatta automaticamente
-
-        # PARAMETRI MAGICI per frasi lunghe
-        audio = recognizer.listen(
-            source,
-            timeout=8,  # tempo massimo di silenzio prima di smettere di ascoltare
-            phrase_time_limit=15  # <-- massimo 15 secondi di frase continua (perfetto per frasi lunghe)
-        )
-
+    """Ascolta il microfono con impostazioni ottimizzate per la velocità"""
+    with mic as source:
+        print("Listening...", end="\r", flush=True)  # Feedback visivo minimo
         try:
-            # Usa Google con energy_threshold più basso (più sensibile)
+            # timeout: se non parli entro 5s, smette di ascoltare
+            # phrase_time_limit: taglia la registrazione a 10s per velocizzare l'invio a Google
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+
+            # Riconoscimento Google
             testo = recognizer.recognize_google(audio, language="it-IT")
-            print(f"Hai detto: {testo}")
+            print(f"\nTu: {testo}")
             return testo.lower()
 
         except sr.WaitTimeoutError:
-            print("Nessun suono rilevato per troppo tempo...")
-            return None
+            return None  # Silenzio, riprova subito
         except sr.UnknownValueError:
-            print("Non ho capito bene, puoi ripetere?")
+            return None  # Rumore non capito, riprova
+        except sr.RequestError:
+            parla("C'è un problema di connessione.")
             return None
         except Exception as e:
             print(f"Errore: {e}")
             return None
 
 
-def rispondi_con_nome(domanda):
-    """Invia la domanda a Gemini e fa rispondere sempre chiamandoti con il tuo nome"""
+def rispondi_gemini(domanda):
+    """Gestisce la risposta AI"""
     try:
-        risposta_cruda = chat.send_message(domanda).text
-
-
-        prompt = f"Riscrivi esattamente questa risposta rivolgendoti sempre a me chiamandomi '{NOME_PREFERITO}'. "
-        prompt += "Non aggiungere spiegazioni, usa solo la risposta riscritta:\n\n" + risposta_cruda
-
-        risposta_finale = chat.send_message(prompt).text
-
-        return risposta_finale.strip()
-
-    except Exception as e:
-        return f"Mi dispiace {NOME_PREFERITO}, c'è stato un errore."
-
-
-def parla(testo):
-    global stop_speaking
-    stop_speaking = False  # resetta ogni volta che inizia a parlare
-
-    def _speak():
-        if stop_speaking:
-            return
-        engine.say(testo)
-        engine.runAndWait()
-
-    # Avvia la sintesi vocale in un thread separato
-    thread = threading.Thread(target=_speak, daemon=True)
-    thread.start()
-    thread.join(timeout=15)  # massimo 15 secondi di attesa (per sicurezza)
-
-def rispondi(domanda):
-    try:
-        # Usa la chat con storico (molto meglio di una chiamata singola!)
         response = chat.send_message(domanda)
         return response.text
     except Exception as e:
-        return f"Mi dispiace, c'è stato un errore: {str(e)}"
+        return f"Mi dispiace, c'è stato un errore nei miei circuiti: {str(e)}"
 
-# Loop principale
-print("Assistente vocale Gemini attivo! Di' 'esci' per terminare.")
-parla("Ciao sono Jarvis. Come posso aiutarti?")
+
+# --- LOOP PRINCIPALE ---
+print("\n--- JARVIS ATTIVO ---")
+parla(f"Sistemi online. Ciao {NOME_PREFERITO}.")
 
 while True:
-    domanda = ascolta()
-    if not domanda:
-        continue
+    testo_utente = ascolta()
 
-    if "esci" in domanda or "addio" in domanda or "ciao" in domanda:
-        parla("Ciao! A presto signore.")
+    if not testo_utente:
+        continue  # Se non sente nulla, ricomincia subito il ciclo (reattività)
+
+    # 1. Comandi di Uscita
+    if any(parola in testo_utente for parola in ["esci", "spegniti", "addio", "stop"]):
+        parla("Disattivazione sistemi. A presto.")
         break
 
-    if any(x in domanda for x in ["zitto", "silenzio", "sta zitto", "sh", "basta", "taci", "stop"]):
-        stop_speaking = True
-        engine.stop()  # forza lo stop immediato
-        print("🔇 Silenzio attivato.")
-        continue  # torna subito in ascolto senza rispondere
+    # 2. Rilevamento Parola Chiave "Jarvis" (o varianti)
+    keyword_detected = any(k in testo_utente for k in ["jarvis", "giarvis", "ciarvis"])
 
-    elif "jarvis" in domanda or "giarvis" in domanda or "gliarvis" in domanda:  # parola di attivazione
+    if keyword_detected:
+        # Pulisce la frase togliendo la parola chiave per mandarla pulita alle funzioni
+        comando_pulito = testo_utente.replace("jarvis", "").replace("giarvis", "").strip()
 
-        citta = weather.trova_citta(domanda)
-        if citta and any(
-                parola in domanda for parola in ["meteo", "tempofa", "previsioni", "piove", "fa caldo", "fa freddo"]):
-            print(f"🔍 Cerco il meteo per {citta}...")
-            risposta = weather.previsione_meteo(citta)
-            parla(risposta)
+        # Se ha detto SOLO "Jarvis", chiedi cosa vuole
+        if not comando_pulito:
+            parla("Dimmi pure?")
             continue
 
-        if "sono io" in domanda:
-            risposta = rispondi_con_nome(domanda)
-            parla(risposta)
+        # 3. Controllo Meteo
+        keywords_meteo = ["meteo", "tempo", "previsioni", "piove", "gradi"]
+        if any(w in comando_pulito for w in keywords_meteo):
+            citta = weather.trova_citta(comando_pulito)
+            if citta:
+                print(f"🔍 Controllo meteo per: {citta}")
+                dati_meteo = weather.previsione_meteo(citta)
+                parla(dati_meteo)
+            else:
+                # Se non trova la città, lo chiede a Gemini
+                risposta = rispondi_gemini(comando_pulito)
+                parla(risposta)
+            continue
 
+        # 4. Risposta Generica (Gemini)
+        print("🤖 Elaborazione risposta...")
+        risposta = rispondi_gemini(comando_pulito)
 
-
-        risposta = rispondi(domanda)
-        print(f"AI: {risposta}")
+        # Stampa e Parla
+        print(f"Jarvis: {risposta}")
         parla(risposta)
