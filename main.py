@@ -106,7 +106,8 @@ while True:
     # 1. Comandi di Uscita
     if any(parola in testo_utente for parola in ["esci", "spegniti", "addio", "stop"]):
         parla("Disattivazione sistemi. A presto.")
-        break
+        engine.stop()
+        
 
     # 2. Rilevamento Parola Chiave "Jarvis" (o varianti)
     keyword_detected = any(k in testo_utente for k in ["jarvis", "giarvis", "ciarvis"])
