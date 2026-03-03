@@ -115,8 +115,8 @@ def main_ui():
     center = (300, 300)
     
     # --- IMPOSTA IL NUMERO TOTALE DI FOTOGRAMMI QUI ---
-    # Se hai estratto 30, 50 o 60 immagini dalla tua GIF, cambia questo numero!
-    totale_fotogrammi = 23
+    
+    totale_fotogrammi = 148
     
     for i in range(1, totale_fotogrammi + 1):
         placeholder_path = f"jarvisface/{i}.jpg" 
@@ -133,7 +133,7 @@ def main_ui():
     
     # VELOCITÀ ANIMAZIONE: 0.5 significa che cambia immagine ogni 2 tick (circa 30 FPS effettivi)
     # Alzalo (es. 0.8) per farla andare più veloce, abbassalo (es. 0.2) per rallentarla
-    velocita_animazione = 0.2 
+    velocita_animazione = 0.4 
 
     while running:
         for event in pg.event.get(): 
