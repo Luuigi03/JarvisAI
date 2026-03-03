@@ -106,73 +106,67 @@ class imageHandler:
 
 def main_ui():
     global running
-    pg.init() # Initiates the display pygame da JarvisGUIPart 11.txt
+    pg.init() 
     screen = pg.display.set_mode((600, 600)) 
-    pg.display.set_caption("J.A.R.V.I.S.") #titolo finestra
+    pg.display.set_caption("J.A.R.V.I.S.") 
     clock = pg.time.Clock()
     
-    # Inizializza il gestore di immagini da 'JarvisGUIPart 11.txt'
     handler = imageHandler()
     center = (300, 300)
     
-    # Caricamento sequenziale delle immagini da 'JarvisGUIPart 11.txt'
-    # Sostituisci i percorsi segnaposto con le posizioni dei tuoi file .jpg reali
-    # handler.loadFromFile ( "c://jarvis/jarvisface/1.jpg", "1" ) da JarvisGUIPart 11.txt
-    for i in range(1, 11):
-        placeholder_path = f"jarvisface/{i}.jpg" # SEGNAPOSTO: imposta il percorso corretto
-        # Verifica se il file esiste prima di caricarlo per evitare crash
+    # --- IMPOSTA IL NUMERO TOTALE DI FOTOGRAMMI QUI ---
+    # Se hai estratto 30, 50 o 60 immagini dalla tua GIF, cambia questo numero!
+    totale_fotogrammi = 23
+    
+    for i in range(1, totale_fotogrammi + 1):
+        placeholder_path = f"jarvisface/{i}.jpg" 
         if os.path.exists(placeholder_path):
             handler.loadFromFile(placeholder_path, str(i))
         else:
             print(f"⚠️ Avviso: File non trovato in {placeholder_path}")
 
-    current_frame_index = 1
-    frame_size = (500, 500) # Dimensione a cui ridimensionare i fotogrammi
-    # Calcola la posizione per centrare i fotogrammi (x, y) = (surface.get_width() / 2 - self.pics[id].get_width() / 2) da JarvisGUIPart 11.txt
+    frame_size = (500, 500) 
     frame_position = (center[0] - frame_size[0] // 2, center[1] - frame_size[1] // 2) 
+
+    # Variabile per contare i frame in modo fluido (usiamo i decimali)
+    current_frame_index = 1.0 
+    
+    # VELOCITÀ ANIMAZIONE: 0.5 significa che cambia immagine ogni 2 tick (circa 30 FPS effettivi)
+    # Alzalo (es. 0.8) per farla andare più veloce, abbassalo (es. 0.2) per rallentarla
+    velocita_animazione = 0.2 
 
     while running:
         for event in pg.event.get(): 
             if event.type == pg.QUIT: 
-                # Controlla se l'utente ha chiuso la finestra pigiando la x
-                os.system("killall say") # Uccide la voce istantaneamente
+                os.system("killall say") 
                 running = False 
                 os._exit(0)
 
-        # Sfondo nero (Blu molto scuro) da JarvisGUIPart 11.txt
         screen.fill((5, 2, 23))
 
-        # Logica di riproduzione dei fotogrammi in sequenza da 'JarvisGUIPart 11.txt'
-        current_frame_index_str = str(current_frame_index)
+        # Convertiamo il contatore decimale in un numero intero per prendere l'immagine
+        indice_intero = int(current_frame_index)
+        current_frame_index_str = str(indice_intero)
         
-        # Verifica se il fotogramma è caricato correttamente
         if current_frame_index_str in handler.pics:
-            # handler.render ( screen, "1", ( A, B ), True, ( x, y ) ) da JarvisGUIPart 11.txt
             handler.render(screen, current_frame_index_str, frame_position, clear=False, size=frame_size)
             
-            # Incrementa l'indice per mostrare il fotogramma successivo al prossimo ciclo
-            # Questo ricrea la sequenza "1", "2", "3" ecc. da 'JarvisGUIPart 11.txt'
-            current_frame_index += 1
-            if current_frame_index > 10:
-                current_frame_index = 1 # Ripete la sequenza video
+            # Incrementiamo il contatore usando la velocità personalizzata
+            current_frame_index += velocita_animazione
             
-            # pygame.display.update(30,300,1024,768) da JarvisGUIPart 11.txt
-            pg.display.flip() 
-            # time.sleep(.2) da JarvisGUIPart 11.txt. 
-            # Invece di sleep, usiamo pg.time.wait(.2 * 1000) o clock.tick per performance migliori in un multi-thread
-            pg.time.wait(int(0.2 * 1000)) # Pausa di 0.2 secondi tra i fotogrammi da 'JarvisGUIPart 11.txt'
-            
+            # Se superiamo il numero totale di fotogrammi, ricominciamo da 1
+            if current_frame_index >= totale_fotogrammi + 1:
+                current_frame_index = 1.0 
         else:
-            # Se un fotogramma non è caricato, mostra un'interfaccia di fallback semplice
             pg.draw.circle(screen, (0, 100, 150), center, 100, 2)
-            pg.display.flip() 
 
-        # clock.tick(60) rimosso per permettere a pg.time.wait() di controllare il timing esatto da JarvisGUIPart 11.txt
+        pg.display.flip() 
+        # Fissiamo il programma a 60 FPS costanti, eliminando i vecchi "wait" o "sleep"
+        clock.tick(60) 
     
     pg.quit()
-    os.system("killall say") # Chiude forzatamente anche il thread vocale
+    os.system("killall say") 
     os._exit(0)
-
 
 def logica_jarvis():
     global running
