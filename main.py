@@ -6,11 +6,12 @@ import threading # concorrenza
 from dotenv import load_dotenv #gestione variabili d'ambiente
 import weather #api meteo 
 import pygame as pg# libreria per ui
-import threading #La ui sarà gestita su un thread separato da quello della logica di ascolto ecc..
 import math #utilizzaremo sin e cos per la pulsazione della ui
-import random # Serve per l'effetto glitch visivo
+#import random # Serve per l'effetto glitch visivo - rimosso perché non usato nell'animazione video
 
+# --- VARIABILI GLOBALI ---
 is_speaking = False #per animare la ui quando Jarvis parla
+running = True # Variabile globale per chiudere tutto pulitamente
 
 # Carica variabili d'ambiente che sono scritte nel file .env
 load_dotenv()
@@ -18,63 +19,50 @@ load_dotenv()
 # --- CONFIGURAZIONE API GEMINI ---
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
-    # Gestione errore soft per evitare crash se manca la chiave durante il test UI
-    print("ATTENZIONE: Chiave API mancante. La logica AI potrebbe non funzionare.")
-else:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")  # Usa Flash per maggiore velocità
-    chat = model.start_chat()  # Mantiene la cronologia della conversazione della sessione attuale
+    raise ValueError("Errore: imposta la variabile d'ambiente della chiave API")
 
-# --- CONFIGURAZIONE VOCALE ---
-recognizer = sr.Recognizer() # oggetto per la gestione del riconoscimento vocale STT
-engine = pyttsx3.init() # oggetto per la gestione dello TTS
-engine.setProperty('rate', 150)  # Velocità voce. Rate=parole al minuto
-engine.setProperty('volume', 1.0) # 1.0 = volume al massimo
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.5-flash")  # Usa Flash per maggiore velocità
+chat = model.start_chat()  # Mantiene la cronologia della conversazione della sessione attuale
 
-#Variabili globali
-stop_speaking = False
+# --- CONFIGURAZIONE VOCALE (Versione Mac Stabile) ---
 NOME_PREFERITO = "Iron Man"
 
-# --- SETUP INIZIALE MICROFONO ---
-# Nota: Spostato dentro la logica per evitare blocchi all'avvio della UI, ma manteniamo il print
-print("Inizializzazione sistema...")
-
-
 def parla(testo):
-    global stop_speaking, is_speaking
-    stop_speaking = False
-
+    """
+    Usa la sintesi vocale nativa di macOS per evitare crash del thread.
+    """
+    global is_speaking
     # Debug visivo per essere sicuri che la funzione venga chiamata
-    print(f"🔊 Tentativo di riproduzione audio: {testo}")
+    print(f"🔊 Jarvis: {testo}")
 
     is_speaking = True
     try:
-        engine.say(testo)
-        engine.runAndWait() # Questo blocca il thread 'logica_jarvis' finché non finisce di parlare
-    except RuntimeError:
-        # Gestisce il caso in cui il loop dell'engine sia già attivo (raro se non usi thread annidati)
-        print("Errore: Engine loop già attivo")
-        pass
+        # Puliamo il testo per il terminale
+        testo_sicuro = testo.replace("'", "").replace('"', "")
+        # Questo blocca il thread 'logica_jarvis' finché non finisce di parlare
+        # '-v Luca' usa la voce italiana migliorata. Se non la hai, togli '-v Luca'
+        os.system(f"say -v Luca '{testo_sicuro}'")
+    except Exception as e:
+        print(f"Errore: {e}")
     finally:
         is_speaking = False
 
 
-def ascolta():
-    # Definiamo mic qui per evitare conflitti di init
-    mic = sr.Microphone()
+def ascolta(recognizer, mic):
     with mic as source:
         print("Listening...", end="\r", flush=True)
         try:
             # timeout: se non parlo entro 5s, smette di ascoltare
-            # phrase_time_limit: a 10s smette di ascoltare considerando la frase terminata
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            # phrase_time_limit: IMPORTANTE per evitare che si blocchi se c'è rumore di fondo
+            audio = recognizer.listen(source, timeout=4, phrase_time_limit=5)
 
             # Riconoscimento Google
-            testo = recognizer.recognize_google(audio, language="it-IT") #invia l'audio a google ed ottiene il testo
+            testo = recognizer.recognize_google(audio, language="it-IT") 
             print(f"\nTu: {testo}")
             return testo.lower()
 
-        except sr.WaitTimeoutError: #Eccezione se l'utente non parla o ha fatto troppo silenzio
+        except sr.WaitTimeoutError: #Eccezione se l'utente non parla
             return None
         except sr.UnknownValueError: #Non capisce cosa è stato detto
             return None
@@ -82,7 +70,7 @@ def ascolta():
             parla("C'è un problema di connessione.")
             return None
         except Exception as e: #Qualsiasi altra eccezione imprevista
-            print(f"Errore: {e}")
+            print(f"Errore ascolto: {e}")
             return None
 
 
@@ -93,141 +81,138 @@ def rispondi_gemini(domanda):
         response = chat.send_message(domanda)
         return response.text
     except Exception as e:
-        return f"Mi dispiace, c'è stato un errore nei miei circuiti: {str(e)}"
+        return f"Errore nei circuiti: {str(e)}"
 
-# --- CLASSI GRAFICHE (Aggiunte per l'effetto video) ---
-class GlitchText:
-    def __init__(self, text, font_size, center_pos):
-        self.font = pg.font.Font(None, font_size) 
-        self.base_surf = self.font.render(text, True, (100, 255, 255))
-        self.rect = self.base_surf.get_rect(center=center_pos)
-        self.glitch_intensity = 0.0
+# --- CLASSI E FUNZIONI GRAFICHE INTEGRATE ---
 
-    def draw(self, surface, active):
-        target = 1.0 if active else 0.0
-        self.glitch_intensity += (target - self.glitch_intensity) * 0.1
-        
-        if self.glitch_intensity < 0.1:
-            surface.blit(self.base_surf, self.rect)
-            return
+class imageHandler:
+  """Gestore per il caricamento e il rendering sequenziale di immagini da 'JarvisGUIPart 11.txt'."""
+  def __init__ ( self ):
+    self.pics = dict()
 
-        slice_h = int(max(2, 15 * self.glitch_intensity))
-        for y in range(0, self.rect.height, slice_h):
-            slice_rect = pg.Rect(0, y, self.rect.width, slice_h)
-            offset_x = random.randint(-5, 5) if random.random() < self.glitch_intensity else 0
-            surface.blit(self.base_surf, (self.rect.x + offset_x, self.rect.y + y), slice_rect)
+  def loadFromFile ( self, filename, id=None ):
+    if id == None: id = filename
+    # pygame.image.load(filename).convert() da JarvisGUIPart 11.txt
+    self.pics [ id ] = pg.image.load ( filename ).convert_alpha()
 
-def draw_reactor(screen, center, timer, active):
-    # Colori
-    cyan = (0, 200, 200)
-    bright_cyan = (150, 255, 255)
-    
-    # Velocità rotazione
-    speed = timer * 0.1 if active else timer * 0.02
-    
-    # Cerchio esterno (fisso con glow)
-    pg.draw.circle(screen, (0, 50, 60), center, 220, 2)
-    pg.draw.circle(screen, (0, 100, 100), center, 200, 5)
-
-    # Anello rotante segmentato
-    num_seg = 12
-    for i in range(num_seg):
-        angle = speed + (i * (2 * math.pi / num_seg))
-        rect = pg.Rect(center[0]-180, center[1]-180, 360, 360)
-        pg.draw.arc(screen, cyan, rect, angle, angle + 0.4, 4)
-
-    # Nucleo Pulsante
-    pulse = math.sin(timer * 0.2) * 10 if active else math.sin(timer * 0.05) * 5
-    radius = int(80 + pulse)
-    
-    # Glow nucleo (trasparenza simulata disegnando cerchi multipli)
-    pg.draw.circle(screen, (0, 30, 40), center, radius) 
-    pg.draw.circle(screen, bright_cyan, center, radius, 3)
-    pg.draw.circle(screen, (255, 255, 255), center, int(radius * 0.8), 1)
+  def render ( self, surface, id, position = None, clear = False, size = None ):
+    if clear == True:
+      surface.fill ( (5,2,23) ) # background color from JarvisGUIPart 11.txt
+    if position == None: picX = int ( surface.get_width() / 2 - self.pics [ id ].get_width() / 2 )
+    else: picX, picY = position
+    if size == None: surface.blit ( self.pics [ id ], ( picX, picY ) )
+    else: surface.blit ( pg.transform.smoothscale ( self.pics [ id ], size ), ( picX, picY ) )
 
 
 def main_ui():
-    pg.init()
-    # Aumentiamo leggermente la risoluzione per l'effetto grafico
+    global running
+    pg.init() # Initiates the display pygame da JarvisGUIPart 11.txt
     screen = pg.display.set_mode((600, 600)) 
     pg.display.set_caption("J.A.R.V.I.S.") #titolo finestra
     clock = pg.time.Clock()
-    running = True
-
-    #Variabili animazione
-    base_radius = 100
-    animation_timer = 0
     
-    # Inizializza testo
+    # Inizializza il gestore di immagini da 'JarvisGUIPart 11.txt'
+    handler = imageHandler()
     center = (300, 300)
-    jarvis_text = GlitchText("JARVIS", 100, center)
+    
+    # Caricamento sequenziale delle immagini da 'JarvisGUIPart 11.txt'
+    # Sostituisci i percorsi segnaposto con le posizioni dei tuoi file .jpg reali
+    # handler.loadFromFile ( "c://jarvis/jarvisface/1.jpg", "1" ) da JarvisGUIPart 11.txt
+    for i in range(1, 11):
+        placeholder_path = f"jarvisface/{i}.jpg" # SEGNAPOSTO: imposta il percorso corretto
+        # Verifica se il file esiste prima di caricarlo per evitare crash
+        if os.path.exists(placeholder_path):
+            handler.loadFromFile(placeholder_path, str(i))
+        else:
+            print(f"⚠️ Avviso: File non trovato in {placeholder_path}")
+
+    current_frame_index = 1
+    frame_size = (500, 500) # Dimensione a cui ridimensionare i fotogrammi
+    # Calcola la posizione per centrare i fotogrammi (x, y) = (surface.get_width() / 2 - self.pics[id].get_width() / 2) da JarvisGUIPart 11.txt
+    frame_position = (center[0] - frame_size[0] // 2, center[1] - frame_size[1] // 2) 
 
     while running:
-        for event in pg.event.get(): #recupera tutti gli eventi in coda
+        for event in pg.event.get(): 
             if event.type == pg.QUIT: 
-                running = False # Controlla se l'utente ha chiuso la finestra
+                # Controlla se l'utente ha chiuso la finestra pigiando la x
+                os.system("killall say") # Uccide la voce istantaneamente
+                running = False 
                 os._exit(0)
 
-        screen.fill((5, 15, 25)) #Sfondo blu molto scuro (quasi nero)
-   
-        # Incremento timer continuo per fluidità
-        animation_timer += 1
+        # Sfondo nero (Blu molto scuro) da JarvisGUIPart 11.txt
+        screen.fill((5, 2, 23))
 
-        #Logica animazione
-        # Passiamo lo stato "is_speaking" alle funzioni di disegno
+        # Logica di riproduzione dei fotogrammi in sequenza da 'JarvisGUIPart 11.txt'
+        current_frame_index_str = str(current_frame_index)
         
-        # 1. Disegna il Reattore Arc
-        draw_reactor(screen, center, animation_timer, is_speaking)
+        # Verifica se il fotogramma è caricato correttamente
+        if current_frame_index_str in handler.pics:
+            # handler.render ( screen, "1", ( A, B ), True, ( x, y ) ) da JarvisGUIPart 11.txt
+            handler.render(screen, current_frame_index_str, frame_position, clear=False, size=frame_size)
+            
+            # Incrementa l'indice per mostrare il fotogramma successivo al prossimo ciclo
+            # Questo ricrea la sequenza "1", "2", "3" ecc. da 'JarvisGUIPart 11.txt'
+            current_frame_index += 1
+            if current_frame_index > 10:
+                current_frame_index = 1 # Ripete la sequenza video
+            
+            # pygame.display.update(30,300,1024,768) da JarvisGUIPart 11.txt
+            pg.display.flip() 
+            # time.sleep(.2) da JarvisGUIPart 11.txt. 
+            # Invece di sleep, usiamo pg.time.wait(.2 * 1000) o clock.tick per performance migliori in un multi-thread
+            pg.time.wait(int(0.2 * 1000)) # Pausa di 0.2 secondi tra i fotogrammi da 'JarvisGUIPart 11.txt'
+            
+        else:
+            # Se un fotogramma non è caricato, mostra un'interfaccia di fallback semplice
+            pg.draw.circle(screen, (0, 100, 150), center, 100, 2)
+            pg.display.flip() 
 
-        # 2. Disegna il Testo Glitchato (sopra il reattore)
-        jarvis_text.draw(screen, is_speaking)
-
-        # Effetto particelle/disturbo se parla
-        if is_speaking and random.random() > 0.8:
-            rx = random.randint(0, 600)
-            ry = random.randint(0, 600)
-            pg.draw.circle(screen, (200, 255, 255), (rx, ry), 2)
-
-        pg.display.flip() #mostra ciò che è stato disegnato
-        clock.tick(60) #60fps
+        # clock.tick(60) rimosso per permettere a pg.time.wait() di controllare il timing esatto da JarvisGUIPart 11.txt
     
     pg.quit()
+    os.system("killall say") # Chiude forzatamente anche il thread vocale
+    os._exit(0)
 
 
 def logica_jarvis():
+    global running
     # --- CALIBRAZIONE SPOSTATA QUI PER NON BLOCCARE UI ---
+    print("Calibrazione microfono in corso...")
+    recognizer = sr.Recognizer()
     mic = sr.Microphone()
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source, duration=1) 
-        recognizer.energy_threshold = 300 
+    with mic as source: # apre lo stream audio
+        recognizer.adjust_for_ambient_noise(source, duration=1) # calibra il riconoscimento in base al rumore ambientale
+        recognizer.energy_threshold = 300  # Soglia base dalla quale il suono è considerato come voce
+        recognizer.dynamic_energy_threshold = True  # Adatta leggermente il treshold
+        recognizer.pause_threshold = 0.8  # Tempo di silenzio per considerare la frase finita
     
     # --- LOOP PRINCIPALE ---
     print("\n--- JARVIS ATTIVO ---")
     parla(f"Sistemi online. Ciao {NOME_PREFERITO}.")
 
-    while True:
-        testo_utente = ascolta()
+    while running:
+        # Passiamo mic e recognizer alla funzione
+        testo_utente = ascolta(recognizer, mic)
         if not testo_utente:
             continue  # Se non sente nulla, ricomincia subito il ciclo (reattività)
 
         # 1. Comandi di Uscita
         if any(parola in testo_utente for parola in ["esci", "spegniti", "addio", "stop"]):
             parla("Disattivazione sistemi. A presto.")
-            stop_speaking = True
+            os.system("killall say")
+            running = False
             os._exit(0)
 
         # 2. Rilevamento Parola Chiave "Jarvis" (o varianti)
         keyword_detected = any(k in testo_utente for k in ["jarvis", "giarvis", "ciarvis"])
 
-        # Nota: Qui forziamo la risposta anche senza parola chiave se vuoi testare velocemente
-        # Rimuovi "or True" se vuoi usare solo la parola chiave rigorosamente
         if keyword_detected or True: 
             
             # Pulisce la frase togliendo la parola chiave per mandarla pulita alle funzioni
             comando_pulito = testo_utente.replace("jarvis", "").replace("giarvis", "").strip()
 
             # Se ha detto SOLO "Jarvis", chiedi cosa vuole
-            if not comando_pulito and keyword_detected:
+            if not comando_pulito:
                 parla("Dimmi pure?")
                 continue
 
