@@ -5,6 +5,8 @@ import google.generativeai as genai #sdk per utilizzare gemini
 import threading # concorrenza
 from dotenv import load_dotenv #gestione variabili d'ambiente
 import weather #api meteo 
+import atexit
+import subprocess
 import pygame as pg# libreria per ui
 import math #utilizzaremo sin e cos per la pulsazione della ui
 #import random # Serve per l'effetto glitch visivo - rimosso perché non usato nell'animazione video
@@ -28,23 +30,30 @@ chat = model.start_chat()  # Mantiene la cronologia della conversazione della se
 # --- CONFIGURAZIONE VOCALE (Versione Mac Stabile) ---
 NOME_PREFERITO = "Iron Man"
 
+ 
+def uccidi_voce_mac():
+    try:
+        # Silenzia eventuali errori se non c'è nessuna voce in riproduzione
+        subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except:
+        pass
+
+# Registriamo la funzione come "ultima azione da fare prima di morire"
+atexit.register(uccidi_voce_mac)
+
+
+# 2. Aggiorniamo la funzione parla usando subprocess al posto di os.system
 def parla(testo):
-    """
-    Usa la sintesi vocale nativa di macOS per evitare crash del thread.
-    """
     global is_speaking
-    # Debug visivo per essere sicuri che la funzione venga chiamata
     print(f"🔊 Jarvis: {testo}")
 
     is_speaking = True
     try:
-        # Puliamo il testo per il terminale
         testo_sicuro = testo.replace("'", "").replace('"', "")
-        # Questo blocca il thread 'logica_jarvis' finché non finisce di parlare
-        # '-v Luca' usa la voce italiana migliorata. Se non la hai, togli '-v Luca'
-        os.system(f"say -v Luca '{testo_sicuro}'")
+        # subprocess.run blocca il thread in modo più pulito rispetto a os.system
+        subprocess.run(["say", "-v", "Luca", testo_sicuro])
     except Exception as e:
-        print(f"Errore: {e}")
+        print(f"Errore voce: {e}")
     finally:
         is_speaking = False
 
@@ -133,7 +142,11 @@ def main_ui():
     
     # VELOCITÀ ANIMAZIONE: 0.5 significa che cambia immagine ogni 2 tick (circa 30 FPS effettivi)
     # Alzalo (es. 0.8) per farla andare più veloce, abbassalo (es. 0.2) per rallentarla
-    velocita_animazione = 0.4 
+    velocita_base = 0.2 # Velocità fotogrammi quando è in silenzio
+    
+    # Variabili per l'analizzatore vocale simulato
+    scala_corrente = 1.0
+    scala_target = 1.0
 
     while running:
         for event in pg.event.get(): 
@@ -144,28 +157,52 @@ def main_ui():
 
         screen.fill((5, 2, 23))
 
-        # Convertiamo il contatore decimale in un numero intero per prendere l'immagine
         indice_intero = int(current_frame_index)
         current_frame_index_str = str(indice_intero)
         
         if current_frame_index_str in handler.pics:
-            handler.render(screen, current_frame_index_str, frame_position, clear=False, size=frame_size)
             
-            # Incrementiamo il contatore usando la velocità personalizzata
-            current_frame_index += velocita_animazione
+            # --- LOGICA SIMULAZIONE SPETTRO VOCALE ---
+            if is_speaking:
+                velocita_corrente = 0.6
+                
+                # Il 30% delle volte per ogni frame, genera un nuovo "picco" vocale (sillaba)
+                # Questo crea l'effetto irregolare e scattante tipico di una voce reale
+                import random
+                if random.random() < 0.3: 
+                    # Grandezza casuale tra il 100% e il 115% del normale
+                    scala_target = random.uniform(1.0, 1.15) 
+            else:
+                velocita_corrente = velocita_base
+                scala_target = 1.0 # Torna normale in silenzio
+
+            # Interpolazione fluida: avvicina gradualmente la grandezza corrente a quella target
+            # Questo ammorbidisce i picchi, rendendo l'impulso simile all'onda di Siri
+            scala_corrente += (scala_target - scala_corrente) * 0.25 
+
+            # Applica la scala calcolata
+            dim_x = int(frame_size[0] * scala_corrente)
+            dim_y = int(frame_size[1] * scala_corrente)
+            dimensione_attuale = (dim_x, dim_y)
+
+            # Ricalcola la posizione per tenerlo centrato
+            pos_attuale = (center[0] - dimensione_attuale[0] // 2, center[1] - dimensione_attuale[1] // 2)
+
+            handler.render(screen, current_frame_index_str, pos_attuale, clear=False, size=dimensione_attuale)
             
-            # Se superiamo il numero totale di fotogrammi, ricominciamo da 1
+            # Avanzamento fotogrammi
+            current_frame_index += velocita_corrente
             if current_frame_index >= totale_fotogrammi + 1:
                 current_frame_index = 1.0 
+                
         else:
             pg.draw.circle(screen, (0, 100, 150), center, 100, 2)
 
         pg.display.flip() 
-        # Fissiamo il programma a 60 FPS costanti, eliminando i vecchi "wait" o "sleep"
         clock.tick(60) 
     
     pg.quit()
-    os.system("killall say") 
+    subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     os._exit(0)
 
 def logica_jarvis():
