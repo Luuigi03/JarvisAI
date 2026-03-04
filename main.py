@@ -6,6 +6,7 @@ import threading # concorrenza
 from dotenv import load_dotenv #gestione variabili d'ambiente
 import weather #api meteo 
 import atexit
+import time
 import subprocess
 import pygame as pg# libreria per ui
 import math #utilizzaremo sin e cos per la pulsazione della ui
@@ -50,15 +51,21 @@ def parla(testo):
     # Ferma immediatamente qualsiasi voce precedente
     subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
+    # 1. Imposta la variabile SUBITO, prima che parta il thread
+    is_speaking = True 
+
     def esegui_voce():
         global is_speaking
-        is_speaking = True
         try:
             testo_sicuro = testo.replace("'", "").replace('"', "")
             subprocess.run(["say", "-v", "Luca", testo_sicuro])
         except Exception as e:
             print(f"Errore voce: {e}")
         finally:
+            # 2. Lascia il microfono "sordo" per mezzo secondo dopo che ha finito di parlare
+            # Questo elimina l'eco della stanza e svuota il buffer audio
+            import time
+            time.sleep(0.5) 
             is_speaking = False
 
     # Avvia la riproduzione in un thread indipendente
@@ -66,27 +73,34 @@ def parla(testo):
 
 
 def ascolta(recognizer, mic):
+    global is_speaking # Recupera lo stato di Jarvis
+    
     with mic as source:
         print("Listening...", end="\r", flush=True)
+        
+        # Se Jarvis parla, ascolta in finestre molto brevi (2s) per intercettare subito lo "stop"
+        limite_frase = 3 if is_speaking else 5
+        
         try:
-            # timeout: se non parlo entro 5s, smette di ascoltare
-            # phrase_time_limit: IMPORTANTE per evitare che si blocchi se c'è rumore di fondo
-            audio = recognizer.listen(source, timeout=4, phrase_time_limit=5)
+            # Timeout ridotto a 2 secondi per evitare blocchi in caso di silenzio
+            audio = recognizer.listen(source, timeout=2, phrase_time_limit=limite_frase)
 
             # Riconoscimento Google
             testo = recognizer.recognize_google(audio, language="it-IT") 
-            print(f"\nTu: {testo}")
+            
+            # Stampa l'input solo se l'utente sta parlando normalmente
+            if not is_speaking: 
+                print(f"\nTu: {testo}")
             return testo.lower()
 
-        except sr.WaitTimeoutError: #Eccezione se l'utente non parla
+        except sr.WaitTimeoutError: 
             return None
-        except sr.UnknownValueError: #Non capisce cosa è stato detto
+        except sr.UnknownValueError: 
             return None
-        except sr.RequestError: #Richiesta a google fallita
-            parla("C'è un problema di connessione.")
+        except sr.RequestError: 
+            print("\nErrore di connessione a Google.")
             return None
-        except Exception as e: #Qualsiasi altra eccezione imprevista
-            print(f"Errore ascolto: {e}")
+        except Exception as e: 
             return None
 
 
@@ -218,6 +232,7 @@ def logica_jarvis():
     print("Calibrazione microfono in corso...")
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
+    parla(f"Sistemi online. Ciao {NOME_PREFERITO}.")
     with mic as source: # apre lo stream audio
         recognizer.adjust_for_ambient_noise(source, duration=1) # calibra il riconoscimento in base al rumore ambientale
         recognizer.energy_threshold = 300  # Soglia base dalla quale il suono è considerato come voce
@@ -226,7 +241,7 @@ def logica_jarvis():
     
     # --- LOOP PRINCIPALE ---
     print("\n--- JARVIS ATTIVO ---")
-    parla(f"Sistemi online. Ciao {NOME_PREFERITO}.")
+    
 
     while running:
         # Passiamo mic e recognizer alla funzione
