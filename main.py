@@ -79,11 +79,11 @@ def ascolta(recognizer, mic):
         print("Listening...", end="\r", flush=True)
         
         # Se Jarvis parla, ascolta in finestre molto brevi (2s) per intercettare subito lo "stop"
-        limite_frase = 3 if is_speaking else 5
+        limite_frase = 3 if is_speaking else 15
         
         try:
             # Timeout ridotto a 2 secondi per evitare blocchi in caso di silenzio
-            audio = recognizer.listen(source, timeout=2, phrase_time_limit=limite_frase)
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=limite_frase)
 
             # Riconoscimento Google
             testo = recognizer.recognize_google(audio, language="it-IT") 
@@ -237,7 +237,7 @@ def logica_jarvis():
         recognizer.adjust_for_ambient_noise(source, duration=1) # calibra il riconoscimento in base al rumore ambientale
         recognizer.energy_threshold = 300  # Soglia base dalla quale il suono è considerato come voce
         recognizer.dynamic_energy_threshold = True  # Adatta leggermente il treshold
-        recognizer.pause_threshold = 0.8  # Tempo di silenzio per considerare la frase finita
+        recognizer.pause_threshold = 1.5  # Tempo di silenzio per considerare la frase finita
     
     # --- LOOP PRINCIPALE ---
     print("\n--- JARVIS ATTIVO ---")
@@ -285,6 +285,7 @@ def logica_jarvis():
             # 3. Controllo Meteo
             keywords_meteo = ["meteo", "tempo", "previsioni", "piove", "gradi"]
             if any(w in comando_pulito for w in keywords_meteo):
+                print("CERCO PER METEO")
                 citta = weather.trova_citta(comando_pulito)
                 if citta:
                     print(f"🔍 Controllo meteo per: {citta}")
