@@ -47,15 +47,22 @@ def parla(testo):
     global is_speaking
     print(f"🔊 Jarvis: {testo}")
 
-    is_speaking = True
-    try:
-        testo_sicuro = testo.replace("'", "").replace('"', "")
-        # subprocess.run blocca il thread in modo più pulito rispetto a os.system
-        subprocess.run(["say", "-v", "Luca", testo_sicuro])
-    except Exception as e:
-        print(f"Errore voce: {e}")
-    finally:
-        is_speaking = False
+    # Ferma immediatamente qualsiasi voce precedente
+    subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+    def esegui_voce():
+        global is_speaking
+        is_speaking = True
+        try:
+            testo_sicuro = testo.replace("'", "").replace('"', "")
+            subprocess.run(["say", "-v", "Luca", testo_sicuro])
+        except Exception as e:
+            print(f"Errore voce: {e}")
+        finally:
+            is_speaking = False
+
+    # Avvia la riproduzione in un thread indipendente
+    threading.Thread(target=esegui_voce, daemon=True).start()
 
 
 def ascolta(recognizer, mic):
@@ -225,26 +232,39 @@ def logica_jarvis():
         # Passiamo mic e recognizer alla funzione
         testo_utente = ascolta(recognizer, mic)
         if not testo_utente:
-            continue  # Se non sente nulla, ricomincia subito il ciclo (reattività)
+            continue  # Se non sente nulla, ricomincia subito il ciclo
 
-        # 1. Comandi di Uscita
-        if any(parola in testo_utente for parola in ["esci", "spegniti", "addio", "stop"]):
+        # --- PREVENZIONE AUTO-ASCOLTO ED INTERRUZIONE ---
+        # Se Jarvis sta parlando, accetta SOLO i comandi per zittirlo
+        if is_speaking:
+            if any(parola in testo_utente for parola in ["stop", "basta", "zitto", "fermati"]):
+                subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                print("🛑 Jarvis silenziato.")
+            else:
+                # Ignora le altre parole perché probabilemente è la sua stessa voce
+                print("🗣️ Ignoro l'audio (Jarvis sta parlando)...")
+            continue # Ricomincia il ciclo senza passare il testo a Gemini
+
+        # 1. Comandi di Uscita totale
+        if any(parola in testo_utente for parola in ["esci", "spegniti", "addio"]):
             parla("Disattivazione sistemi. A presto.")
-            os.system("killall say")
+            subprocess.run(["killall", "say"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
             running = False
             os._exit(0)
 
         # 2. Rilevamento Parola Chiave "Jarvis" (o varianti)
         keyword_detected = any(k in testo_utente for k in ["jarvis", "giarvis", "ciarvis"])
 
+        # Nota: nel tuo codice c'era "or True". Se vuoi che risponda SEMPRE
+        # anche se non dici "Jarvis", lascialo. Altrimenti rimuovi "or True".
         if keyword_detected or True: 
             
-            # Pulisce la frase togliendo la parola chiave per mandarla pulita alle funzioni
-            comando_pulito = testo_utente.replace("jarvis", "").replace("giarvis", "").strip()
+            # Pulisce la frase togliendo la parola chiave
+            comando_pulito = testo_utente.replace("jarvis", "").replace("giarvis", "").replace("ciarvis", "").strip()
 
             # Se ha detto SOLO "Jarvis", chiedi cosa vuole
             if not comando_pulito:
-                parla("Dimmi pure?")
+                parla("Dimmi pure.")
                 continue
 
             # 3. Controllo Meteo
@@ -256,7 +276,6 @@ def logica_jarvis():
                     dati_meteo = weather.previsione_meteo(citta)
                     parla(dati_meteo)
                 else:
-                    # Se non trova la città, lo chiede a Gemini
                     risposta = rispondi_gemini(comando_pulito)
                     parla(risposta)
                 continue
